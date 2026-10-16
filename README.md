@@ -12,31 +12,27 @@ by: Brandon Chaney
 
 ## Overview
 
-**Bedside was my first Medium Hack The Box machine without HTB's guided questions or objectives.** I went in knowing only that I needed the user and root flags. I wanted to work out the path myself, including the parts where I chased something that didn't work or had to figure out why a command behaved differently than expected.
+Bedside starts with an unsuspecting clinic website. A virtual host scan reveals a portal accepting images, PDFs, and archives, and exposes a vulnerable PDF processor. Exploitation leads inside a Docker container of a development server, and path traversal can be used to read the user `developer`'s SSH key.
 
-The machine started with a fairly ordinary clinic website. A virtual-host scan revealed a research portal that accepted medical images, PDFs, and archives. I spent some time testing the upload feature for basic PHP execution, but the real opening was a vulnerable PDF processing worker. From there I landed in a Docker container, reached an internal development server, and used a path traversal issue to read the `developer` user's SSH key and get onto the host.
+The root path comes from a specific sudo permission, the ability to run `/usr/bin/python3 /opt/trainer/bedside_trainer.py` passwordless. This script executed as root loads checkpoints from a directory writeable by the container account `datawrangler`. An unsafe PyTorch checkpoint can be used to execute commands as root, leading to full system compromise.
 
-The root path came from an unusually specific sudo permission. A root-run training script loaded checkpoints from a directory my container account could write to. I used an unsafe PyTorch checkpoint to execute commands as root and retrieve the second flag.
+## Enumeration
 
-*IP note: I restarted the machine partway through the attempt. I've normalized the commands below to the final machine address, `10.129.134.251`. My Parrot VPN address during exploitation was `10.10.14.206`.*
-
-## Enumeration & the Research Portal
-
-I started with Nmap. SSH and Apache were open, and port `3000` was **filtered**. I kept that last one in mind but couldn't access it at the time.
+I started with Nmap. SSH and Apache were open, and port `3000` was **filtered**. It's inaccessible outward-facing but will prove useful later.
 
 ```bash
 ┌──[brandonc@parrot]─[~]
 └─❯ nmap -sV -sC -A 10.129.134.251
 
 PORT     STATE    SERVICE VERSION
-22/tcp   open     ssh     OpenSSH 10.0p2 Debian
-80/tcp   open     http    Apache httpd 2.4.68
+**22/tcp   open     ssh     OpenSSH 10.0p2 Debian
+**80/tcp   open     http    Apache httpd 2.4.68
 3000/tcp filtered ppp
 
 |_http-title: Did not follow redirect to http://bedside.htb/
 ```
 
-I added `bedside.htb` to `/etc/hosts`. The main website was almost entirely a single static-looking page, so I moved to directory and virtual-host enumeration. Directory scans mostly returned `index.php` and standard Apache paths. The virtual-host scan was more useful:
+I added `bedside.htb` to `/etc/hosts`. The main website's functionality was limited to a single home page, so I moved to directory and virtual host enumeration. Directory scans mostly returned `index.php` and normal Apache paths. The vhost scan was more useful:
 
 ```bash
 ┌──[brandonc@parrot]─[~]
@@ -50,11 +46,11 @@ I added `bedside.htb` to `/etc/hosts`. The main website was almost entirely a si
 research - HTTP 200
 ```
 
-I mapped `research.bedside.htb` to the same target IP and opened it. It was a **Bedside Research Portal** with a file upload form. It accepted images, DICOM medical files, PDFs, and ZIP/GZ archives. It also mentioned that certain files might be converted for AI training.
+I mapped `research.bedside.htb` to the target IP and opened it, revealing a **Bedside Research Portal** with a file upload section. It accepted images, DICOM files, PDFs, and ZIP/GZ archives. It also mentioned that certain files might be converted for AI training, so I had to be careful my files were unaltered by checking hashes before and after upload.
 
-## Testing the Upload — and Getting Sidetracked
+## Testing the Upload
 
-An upload form immediately made me think about getting PHP to execute, especially because the landing pages were served through `index.php`. I first checked whether uploaded files were retrievable:
+I wasn't sure how difficult this would be, as it was my first Medium machine, so I hastily tried for PHP remote execution. I first checked whether uploaded files were retrievable:
 
 ```bash
 ┌──[brandonc@parrot]─[~]
@@ -63,7 +59,7 @@ HTTP/1.1 200 OK
 Content-Type: application/zip
 ```
 
-The ZIP was accessible, but its contents weren't extracted into the public upload directory. A file named `probe.txt` inside the ZIP still returned `404` when requested directly. Asking for `.php` files in `/uploads/` gave `403`, even for made-up filenames, so those responses didn't prove that any PHP was actually present.
+The zip was reachable, but its contents weren't extracted server-side (I tried reaching a test file from inside the zip named `probe.txt`  which returned `404`). Asking for `.php` files in `/uploads/` gave `403`, even for invalid filenames, so I couldn't tell whether PHP was actually present.
 
 I then tried a PHP file disguised as a PNG. The server wasn't fooled by the extension or the HTTP MIME header:
 
