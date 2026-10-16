@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1280 245" width="1280" height="245">
+<defs>
+<marker id="arrow" markerWidth="9" markerHeight="9" refX="6.5" refY="3.5" orient="auto"><path d="M0 0 L7 3.5 L0 7 Z" fill="#536976"/></marker>
+</defs>
+<rect x="1" y="1" width="1278" height="243" rx="12" fill="#FBFAF7" stroke="#C8D1D6"/>
+<rect x="28" y="26" width="5" height="24" rx="2" fill="#F0A13B"/>
+<text x="46" y="45" font-family="Arial,DejaVu Sans,sans-serif" font-size="19" fill="#193642" font-weight="bold">02 / CONTAINER TO HOST</text>
+<rect x="38" y="82" width="216" height="104" rx="8" fill="#FFFFFF" stroke="#667F8A" stroke-width="2"/>
+<rect x="38" y="82" width="216" height="6" rx="2" fill="#667F8A"/>
+<text x="146.0" y="118" font-family="Arial,DejaVu Sans,sans-serif" font-size="17" fill="#183540" text-anchor="middle" font-weight="bold">datawrangler</text>
+<text x="146.0" y="145" font-family="Arial,DejaVu Sans,sans-serif" font-size="14" fill="#42565E" text-anchor="middle">Container shell</text>
+<text x="146.0" y="163" font-family="Arial,DejaVu Sans,sans-serif" font-size="14" fill="#42565E" text-anchor="middle">/app</text>
+<path d="M258 134.0 L277 134.0" stroke="#536976" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<rect x="284" y="82" width="216" height="104" rx="8" fill="#FFFFFF" stroke="#667F8A" stroke-width="2"/>
+<rect x="284" y="82" width="216" height="6" rx="2" fill="#667F8A"/>
+<text x="392.0" y="118" font-family="Arial,DejaVu Sans,sans-serif" font-size="17" fill="#183540" text-anchor="middle" font-weight="bold">Host port 3000</text>
+<text x="392.0" y="145" font-family="Arial,DejaVu Sans,sans-serif" font-size="14" fill="#42565E" text-anchor="middle">esm.sh / React</text>
+<text x="392.0" y="163" font-family="Arial,DejaVu Sans,sans-serif" font-size="14" fill="#42565E" text-anchor="middle">image viewer</text>
+<path d="M504 134.0 L523 134.0" stroke="#536976" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<rect x="530" y="82" width="216" height="104" rx="8" fill="#FFFFFF" stroke="#667F8A" stroke-width="2"/>
+<rect x="530" y="82" width="216" height="6" rx="2" fill="#667F8A"/>
+<text x="638.0" y="118" font-family="Arial,DejaVu Sans,sans-serif" font-size="17" fill="#183540" text-anchor="middle" font-weight="bold">Path traversal</text>
+<text x="638.0" y="145" font-family="Arial,DejaVu Sans,sans-serif" font-size="14" fill="#42565E" text-anchor="middle">--path-as-is</text>
+<text x="638.0" y="163" font-family="Arial,DejaVu Sans,sans-serif" font-size="14" fill="#42565E" text-anchor="middle">/../../etc/hostname</text>
+<path d="M750 134.0 L769 134.0" stroke="#536976" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<rect x="776" y="82" width="216" height="104" rx="8" fill="#FFFFFF" stroke="#667F8A" stroke-width="2"/>
+<rect x="776" y="82" width="216" height="6" rx="2" fill="#667F8A"/>
+<text x="884.0" y="118" font-family="Arial,DejaVu Sans,sans-serif" font-size="17" fill="#183540" text-anchor="middle" font-weight="bold">SSH key</text>
+<text x="884.0" y="145" font-family="Arial,DejaVu Sans,sans-serif" font-size="14" fill="#42565E" text-anchor="middle">/home/developer</text>
+<text x="884.0" y="163" font-family="Arial,DejaVu Sans,sans-serif" font-size="14" fill="#42565E" text-anchor="middle">/.ssh/id_rsa</text>
+<path d="M996 134.0 L1015 134.0" stroke="#536976" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<rect x="1022" y="82" width="216" height="104" rx="8" fill="#FFF4DF" stroke="#D68F25" stroke-width="2"/>
+<rect x="1022" y="82" width="216" height="6" rx="2" fill="#D68F25"/>
+<text x="1130.0" y="118" font-family="Arial,DejaVu Sans,sans-serif" font-size="17" fill="#183540" text-anchor="middle" font-weight="bold">developer</text>
+<text x="1130.0" y="145" font-family="Arial,DejaVu Sans,sans-serif" font-size="14" fill="#42565E" text-anchor="middle">SSH shell</text>
+<text x="1130.0" y="163" font-family="Arial,DejaVu Sans,sans-serif" font-size="14" fill="#42565E" text-anchor="middle">on bedside host</text>
+<text x="640.0" y="222" font-family="Arial,DejaVu Sans,sans-serif" font-size="14" fill="#566872" text-anchor="middle">The image viewer was filtered from Parrot, but reachable from the compromised container.</text>
+</svg>
