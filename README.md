@@ -79,7 +79,7 @@ I futilely tried looking for a PHP upload exploit again, this time with an actua
 ┌──[brandonc@parrot]─[~]
 └─❯ cp test.png polyglot.php.png
 ┌──[brandonc@parrot]─[~]
-└─❯ printf '\n<?php echo "HTB_EXECUTION_TEST"; ?>\n' >> polyglot.php.png
+└─❯ printf '\n<?php echo "EXECUTION_TEST"; ?>\n' >> polyglot.php.png
 ┌──[brandonc@parrot]─[~]
 └─❯ curl -s -F "uploadFile=@polyglot.php.png;type=image/png" \
   http://research.bedside.htb/ | grep 'class="message"'
@@ -88,8 +88,8 @@ I futilely tried looking for a PHP upload exploit again, this time with an actua
 ┌──[brandonc@parrot]─[~]
 └─❯ curl -s http://research.bedside.htb/uploads/polyglot.php.png -o polyglot-returned.png
 ┌──[brandonc@parrot]─[~]
-└─❯ strings polyglot-returned.png | grep -E 'HTB_EXECUTION_TEST|<\?php'
-<?php echo "HTB_EXECUTION_TEST"; ?>
+└─❯ strings polyglot-returned.png | grep -E 'EXECUTION_TEST|<\?php'
+<?php echo "EXECUTION_TEST"; ?>
 ```
 
 Unwilling to give up, I compared downloaded PNG, PDF, and DICOM files with the originals' `sha256sum`, and the hashes matched. I was spending too much time on upload extensions without there being evidence that PHP execution was even possible.
@@ -374,7 +374,6 @@ developer@bedside:~$ ls -l /tmp/bedside-root-flag
 -rw-r--r-- 1 root root 33 /tmp/bedside-root-flag
 
 developer@bedside:~$ cat /tmp/bedside-root-flag
-[redacted root flag]
 ```
 
 ## Key Findings
