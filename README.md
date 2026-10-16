@@ -7,6 +7,7 @@
 ![Operating System](https://img.shields.io/badge/OS-Linux-FCC624?logo=linux&logoColor=black)
 
 *Exploiting a PDFMiner file-processing vulnerability, pivoting through an internal development server, and abusing an unsafe PyTorch checkpoint to execute code as root.*
+*A Linux machine covering PDFMiner exploitation, Docker pivoting, path traversal, and PyTorch deserialization for root privilege escalation.*
 
 by: Brandon Chaney
 
