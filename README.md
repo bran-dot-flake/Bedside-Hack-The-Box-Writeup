@@ -94,7 +94,7 @@ I futilely tried looking for a PHP upload exploit again, this time with an actua
 
 Unwilling to give up, I compared downloaded PNG, PDF, and DICOM files with the originals' `sha256sum`, and the hashes matched. I was spending too much time on upload extensions without there being evidence that PHP execution was even possible.
 
-The clue I decided to pivot on was the response header:
+I decided to pivot on the info in the response header:
 
 ```http
 X-Powered-By: pdfminer.six
@@ -102,9 +102,11 @@ X-Powered-By: pdfminer.six
 
 ## PDFMiner - Code Execution via Uploads
 
-Looking into `pdfminer.six`, I found **CVE-2025-64512**, an unsafe-deserialization vulnerability in its CMap loading code. A PDF can name a character-map file, and vulnerable PDFMiner versions can load a gzip-compressed pickle from an attacker-controlled location. Python's `pickle.loads()` can execute code while rebuilding an object.
+With a little research, `pdfminer.six` was vulnerable to **CVE-2025-64512**, a deserialization exploit within its CMap loading code. The vulnerability stems from a PDF being able to name a CMap (character map) file (like .pickle.gz), and the vulnerable PDFMiner versions could load a gzip-compressed pickle from a malicious PDF. Combining this with Python's `pickle.loads()`, attackers can execute code whilst rebuilding an object.
 
-This was where the earlier upload-path error became important. I didn't have to guess where my pickle would end up: the portal told me, and it let me upload `.pickle.gz` files there.
+Basically, the vulnerability let me use a PDF's font encoding to point PDFMiner toward a file outside its normal character map directory. Since I already knew where uploads were stored, I could upload a malicious `.pickle.gz` file and create a PDF that referenced it. And when the server processed the PDF, PDFMiner would load the pickle using `pickle.loads()`, executing my embedded Python payload. 
+
+Since I knew the directory path, I started by uploading my `.pickle.gz` files there.
 
 ```bash
 ┌──[brandonc@parrot]─[~]
@@ -113,7 +115,7 @@ HTTP/1.1 200 OK
 Content-Type: application/x-gzip
 ```
 
-The exploit required **two files**, not just a malicious PDF:
+It's also important to mention the exploit requires **two files**, not just the malicious PDF:
 
 1. A `.pickle.gz` file in the known uploads directory.
 2. A PDF whose font `/Encoding` references that file's absolute path. PDFMiner appends `.pickle.gz` when looking up the CMap.
