@@ -213,7 +213,7 @@ datawrangler@data-wrangler:/app$ cat /proc/self/mountinfo | grep -E 'datastore|r
 
 Having writable storage didn't give me an escape by itself. I looked back at the filtered **port 3000** from before (original Nmap scan).
 
-## Port 3000 — From Docker to the Host
+## Port 3000 - From Docker to the Host
 
 From my Parrot machine, TCP port `3000` timed out. Now, from inside the Docker container, it was reachable:
 
