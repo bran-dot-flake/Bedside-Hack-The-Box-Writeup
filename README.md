@@ -14,7 +14,7 @@ by: Brandon Chaney
 
 Bedside starts with an unsuspecting clinic website. A virtual host scan reveals a portal accepting images, PDFs, and archives, and exposes a vulnerable PDF processor. Exploitation leads inside a Docker container of a development server, and path traversal can be used to read the user `developer`'s SSH key.
 
-The root path comes from a specific sudo permission, the ability to run `/usr/bin/python3 /opt/trainer/bedside_trainer.py` passwordless. This script executed as root loads checkpoints from a directory writeable by the container account `datawrangler`. An unsafe PyTorch checkpoint can be used to execute commands as root, leading to full system compromise.
+The root path comes from the sole sudo permission of `developer`, the ability to run `/usr/bin/python3 /opt/trainer/bedside_trainer.py` passwordless. The script executed as root loads checkpoints from a directory writeable by the container account `datawrangler`. An unsafe PyTorch checkpoint can be used to execute commands as root, leading to full system compromise.
 
 ## Enumeration
 
@@ -46,7 +46,7 @@ I added `bedside.htb` to `/etc/hosts`. The main website's functionality was limi
 research - HTTP 200
 ```
 
-I mapped `research.bedside.htb` to the target IP and opened it, revealing a **Bedside Research Portal** with a file upload section. It accepted images, DICOM files, PDFs, and ZIP/GZ archives. It also mentioned that certain files might be converted for AI training, so I had to be careful my files were unaltered by checking hashes before and after upload.
+I mapped `research.bedside.htb` to the machine IP, revealing a **Bedside Research Portal** with a file upload section. It accepted images, DICOM files, PDFs, and ZIP/GZ archives. It also mentioned that certain files might be converted for AI training, so I had to be careful my files were unaltered by checking hashes before and after upload.
 
 ## Testing the Upload
 
@@ -61,7 +61,7 @@ Content-Type: application/zip
 
 The zip was reachable, but its contents weren't extracted server-side (I tried reaching a test file from inside the zip named `probe.txt`  which returned `404`). Asking for `.php` files in `/uploads/` gave `403`, even for invalid filenames, so I couldn't tell whether PHP was actually present.
 
-I then tried a PHP file disguised as a PNG. The server wasn't fooled by the extension or the HTTP MIME header:
+I tried a PHP file disguised as a PNG. The server wasn't fooled by the extension or the HTTP MIME header:
 
 ```bash
 ┌──[brandonc@parrot]─[~]
@@ -71,9 +71,9 @@ I then tried a PHP file disguised as a PNG. The server wasn't fooled by the exte
 <div class="message">MIME type mismatch. Unable to upload file to destination /var/www/research.bedside.htb/uploads</div>
 ```
 
-That error was useful for two reasons. The application checked more than just the name, **and it gave away the full upload directory on disk**: `/var/www/research.bedside.htb/uploads`.
+That error was useful for two reasons: 1. From this I could tell the application checked more than just the filename, and 2. The response gave away the full upload directory `/var/www/research.bedside.htb/uploads`.
 
-I tried again with a real PNG containing PHP text appended to the end. This time the upload succeeded, but downloading the file showed the PHP source still there as ordinary data. Nothing executed.
+I futilely tried looking for a PHP upload exploit again, this time with an actual PNG with PHP appended at the end. This time the upload succeeded, but downloading the file showed the PHP source still there as it was, without execution.
 
 ```bash
 ┌──[brandonc@parrot]─[~]
@@ -92,15 +92,15 @@ I tried again with a real PNG containing PHP text appended to the end. This time
 <?php echo "HTB_EXECUTION_TEST"; ?>
 ```
 
-I also compared downloaded PNG, PDF, and DICOM files with the originals using `sha256sum`. The hashes matched. Those tests helped me understand the validation, but I was spending too much time on upload extensions without evidence that PHP execution was possible.
+Unwilling to give up, I compared downloaded PNG, PDF, and DICOM files with the originals' `sha256sum`, and the hashes matched. I was spending too much time on upload extensions without there being evidence that PHP execution was even possible.
 
-The clue I finally focused on was the response header:
+The clue I decided to pivot on was the response header:
 
 ```http
 X-Powered-By: pdfminer.six
 ```
 
-## PDFMiner — From an Upload to Code Execution
+## PDFMiner - Code Execution via Uploads
 
 Looking into `pdfminer.six`, I found **CVE-2025-64512**, an unsafe-deserialization vulnerability in its CMap loading code. A PDF can name a character-map file, and vulnerable PDFMiner versions can load a gzip-compressed pickle from an attacker-controlled location. Python's `pickle.loads()` can execute code while rebuilding an object.
 
@@ -421,12 +421,3 @@ I had **both flags**. Something worth clarifying: I didn't finish inside an inte
 - Port `3000` was filtered externally but accessible from the container. The development server allowed path traversal outside its web root, exposing `developer`'s SSH key.
 - A successful SSH login gave an interactive `developer` shell and access to the user flag.
 - The root-run MONAI trainer loaded checkpoint files from a `datawrangler`-writable directory with **`torch.load(..., weights_only=False)`**. That trust boundary enabled root code execution.
-- The final privilege escalation did **not** produce an interactive root shell; it executed commands as root to recover the second flag.
-
-## Resources
-
-- [PDFMiner CVE-2025-64512 — GitHub advisory](https://github.com/pdfminer/pdfminer.six/security/advisories/GHSA-wf5f-4jwr-ppcp)
-- [PDFMiner CMap path validation patch](https://github.com/pdfminer/pdfminer.six/commit/b808ee05dd7f0c8ea8ec34bdf394d40e63501086)
-- [PyTorch `torch.load()` documentation](https://docs.pytorch.org/docs/stable/generated/torch.load.html)
-- [MONAI project](https://github.com/Project-MONAI/MONAI)
-- [draw.io](https://app.diagrams.net/) — editable source diagrams are included alongside the SVGs in [`images/`](images/).
